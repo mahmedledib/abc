@@ -112,9 +112,9 @@ tr.new-row td,.data-table tr.editing td{background:rgba(79,142,247,.04);vertical
 /* autocomplete */
 .ac-wrap{position:relative;}
 .ac-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);max-height:200px;overflow-y:auto;z-index:400;margin-top:2px;box-shadow:0 6px 20px var(--shadow);}
-.ac-list div{padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);}
+.ac-list div{padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text2);opacity:0.7;border-bottom:1px solid var(--border);}
 .ac-list div:last-child{border-bottom:none;}
-.ac-list div:hover,.ac-list div.ac-active{background:var(--surface2);}
+.ac-list div:hover,.ac-list div.ac-active{background:var(--surface2);opacity:1;color:var(--text);}
 .ac-list div mark{background:none;color:var(--accent);font-weight:600;}
 
 /* SAVE BAR */
@@ -186,6 +186,29 @@ tr.new-row td,.data-table tr.editing td{background:rgba(79,142,247,.04);vertical
 .mf-item input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;flex-shrink:0;}
 .btn-save-config{padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;}
 .btn-save-config:hover{opacity:.88;}
+
+/* ADMIN IMAGE VIEWER */
+#admin-img-viewer{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:600;display:none;flex-direction:column;backdrop-filter:blur(6px);}
+#admin-img-viewer.open{display:flex;}
+.aiv-header{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;}
+.aiv-title{font-size:13px;color:var(--text2);flex:1;font-family:var(--mono);}
+.aiv-nav{display:flex;align-items:center;gap:10px;}
+.aiv-counter{font-family:var(--mono);font-size:12px;color:var(--text3);}
+.btn-aiv{background:none;border:1px solid var(--border2);color:var(--text2);padding:6px 14px;border-radius:var(--radius);font-family:var(--font);font-size:13px;cursor:pointer;transition:all .15s;}
+.btn-aiv:hover{border-color:var(--accent);color:var(--accent);}
+.btn-aiv:disabled{opacity:.3;cursor:not-allowed;}
+.btn-aiv-close{border-color:var(--danger);color:var(--danger);}
+.btn-aiv-close:hover{background:rgba(240,96,112,.1);}
+.aiv-body{flex:1;display:flex;overflow:hidden;}
+.aiv-img-pane{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bg);}
+.aiv-img-pane img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;}
+.aiv-info-pane{width:320px;border-left:1px solid var(--border);background:var(--surface);overflow-y:auto;padding:18px;}
+.aiv-info-pane h3{font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px;}
+.aiv-info-row{margin-bottom:10px;font-size:13px;}
+.aiv-info-row .aiv-lbl{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
+.aiv-info-row .aiv-val{color:var(--text2);}
+.aiv-prefetch-bar{height:3px;background:var(--surface2);position:relative;overflow:hidden;}
+.aiv-prefetch-fill{height:100%;background:var(--accent);transition:width .3s;width:0%;}
 
 /* TOAST */
 .toast{position:fixed;bottom:22px;right:22px;padding:11px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;animation:toastIn .22s ease;z-index:900;box-shadow:0 4px 16px var(--shadow);}
@@ -293,7 +316,7 @@ tr.new-row td,.data-table tr.editing td{background:rgba(79,142,247,.04);vertical
 <script>
 // ═══════ CONFIG ═══════════════════════════════════════════
 const CONFIG={
-  GITHUB_TOKEN:'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',
+  GITHUB_TOKEN:'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',
   OWNER:'mahmedledib', REPO:'abc-data-labeling', BRANCH:'main',
   IMAGES_PATH:'images', PROCESSED_PATH:'processed_images', LABELED_PATH:'labeled_data',
   DRUG_CSV_PATH:'drug_names.csv',
@@ -351,7 +374,7 @@ const SESSION_KEY='abc_labeling_session';
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme',t);
   localStorage.setItem('abc_theme',t);
-  const ic=t==='dark'?'🌙':'☀️';
+  const ic=t==='dark'?'☀️':'🌙';
   ['tb-login','tb-app','tb-admin'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=ic;});
 }
 function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');}
@@ -540,7 +563,32 @@ async function prefetchNext(){
 
 // ═══════ INLINE ROW ADD (no modal) ════════════════════════
 function addRow(type){
-  const idx=entries.length;
+  // If there's an open editing row, try to commit it first
+  const openRows=entries.map((e,i)=>e._editing?i:-1).filter(i=>i>=0);
+  for(const i of openRows){
+    // Check mandatory fields for the open row
+    const e=entries[i];
+    const mandatory=mandatoryConfig[e.type]||[];
+    const missing=mandatory.filter(key=>!(e.data[key]||'').trim());
+    if(missing.length){
+      // Highlight missing and block adding new row
+      setTimeout(()=>{
+        missing.forEach(key=>{
+          const fieldId=getFieldId(e.type,key,i);
+          if(fieldId){const el=document.getElementById(fieldId);if(el)el.classList.add('required-err');}
+        });
+      },30);
+      const labels={drug_name:'Nom',test_name:'Nom',body_part:'Région',strength:'Force',form:'Forme',quantity:'Qté',frequency:'Fréquence',duration:'Durée',type:'Type',urgency:'Urgence',fasting:'À jeun',exam_type:'Type examen',side:'Côté'};
+      setStatus("⚠ Remplissez les champs requis avant d'ajouter une nouvelle ligne : "+missing.map(k=>labels[k]||k).join(", "));
+      // Scroll to the open row
+      const row=document.getElementById(`row-${i}`);
+      if(row)row.scrollIntoView({behavior:'smooth',block:'nearest'});
+      return;
+    }
+    // No missing fields — commit it
+    commitEdit(i);
+  }
+  setStatus('');
   const defaults={
     drug:{drug_name:'',strength:'',strength_unit:'mg',second_ingreadient_strength:'',second_unit:'mg',quantity:'',form:'',frequency:'',duration:'',unity_of_duration:'j'},
     analyse:{test_name:'',type:'',urgency:'',fasting:'',frequency:'',notes:''},
@@ -549,7 +597,6 @@ function addRow(type){
   entries.push({type,data:{...defaults[type]},_editing:true});
   showTable();
   renderTable();
-  // Scroll to new row and focus first field
   setTimeout(()=>{
     const tbody=document.getElementById('table-body');
     const rows=tbody.querySelectorAll('tr');
@@ -646,7 +693,7 @@ function renderEditRow(e,i){
       <div class="ef full"><label>Nom de l'analyse *</label>
         <input id="ef-an-${i}" value="${esc(e.data.test_name)}" placeholder="NFS, Glycémie, CRP..."></div>
       <div class="ef"><label>Type</label>
-        <select id="ef-at-${i}">${selectOpts(['','Bilan sanguin','Analyse d\'urine','Selles','Microbiologie','Sérologie','Bilan hormonal','Bilan lipidique','Bilan hépatique','Bilan rénal','Autre'],e.data.type)}</select></div>
+        <select id="ef-at-${i}">${selectOpts(['','Bilan sanguin',"Analyse d'urine",'Selles','Microbiologie','Sérologie','Bilan hormonal','Bilan lipidique','Bilan hépatique','Bilan rénal','Autre'],e.data.type)}</select></div>
       <div class="ef"><label>Urgence</label>
         <select id="ef-au-${i}">${selectOpts(['','Normale','Urgente','Très urgente'],e.data.urgency)}</select></div>
       <div class="ef"><label>À jeun</label>
@@ -793,7 +840,7 @@ function confirmFlag(type){
   if(currentIdx<0)return; pendingFlag=type;
   document.getElementById('flag-icon').textContent=type==='illegible'?'✋':'📷';
   document.getElementById('flag-title').textContent=type==='illegible'?'Écriture illisible':'Mauvaise qualité';
-  document.getElementById('flag-desc').innerHTML= type==='illegible'?`Le contenu, ou une partie de celui-ci, est illisible. Êtes-vous d'accord ?`:"La qualité de l'image ou l'éclairage est très médiocre.";
+  document.getElementById('flag-desc').innerHTML=type==='illegible'?`Le contenu, ou une partie de celui-ci, est illisible. Êtes-vous d'accord ?`:`La qualité de l'image ou l'éclairage est très médiocre.`;
   document.getElementById('flag-confirm-btn').style.background=type==='illegible'?'var(--warning)':'var(--danger)';
   document.getElementById('modal-flag').classList.add('open');
 }
@@ -905,6 +952,7 @@ async function loadAdminDashboard(){
       GH.listFolder(CONFIG.IMAGES_PATH),GH.listFolder(CONFIG.PROCESSED_PATH),
     ]);
     const pd=prog.data,ld={},fd=flg.data,cd=cfg.data;
+    window._adminFd=fd; window._adminPd=pd; window._adminImgList=[...imgList,...procList];
     if(cd.mandatory)mandatoryConfig=cd.mandatory;
     const totalImages=imgList.filter(f=>/\.(jpe?g|png|webp|bmp)$/i.test(f.name)).length+procList.filter(f=>/\.(jpe?g|png|webp|bmp)$/i.test(f.name)).length;
     const labeled=Object.keys(pd).length,flagged=Object.keys(fd).length,pending=totalImages-labeled;
@@ -944,19 +992,19 @@ async function loadAdminDashboard(){
       </div>
     </div>
 
-    <div class="section-title">Images signalées</div>
+    <div class="section-title">Images signalées
+      <button class="btn-save-config" onclick="openFlagViewer()" style="margin-left:auto;font-size:11px;padding:5px 12px;background:var(--accent2)">🖼 Parcourir les images</button>
+    </div>
     <div class="search-row">
       <input class="search-box" id="flag-search" placeholder="Rechercher..." oninput="filterFlagTable()">
       <select class="filter-select" id="flag-filter" onchange="filterFlagTable()">
         <option value="">Tous</option><option value="illegible">Illisibles</option><option value="bad_image">Mauvaises</option>
       </select>
     </div>
-    <table class="admin-table"><thead><tr><th>Image originale</th><th>Signalé par</th><th>Type</th><th>Date</th><th>Statut</th></tr></thead>
+    <table class="admin-table"><thead><tr><th>Image originale</th><th>Signalé par</th><th>Type</th><th>Date</th><th>Statut</th><th></th></tr></thead>
     <tbody id="flag-tbody">${buildFlagRows(fd,pd)}</tbody></table>
 
-    <div class="section-title">Verrous actifs</div>
-    <table class="admin-table"><thead><tr><th>Image</th><th>Assignée à</th><th>Depuis</th></tr></thead>
-    <tbody>${Object.entries(ld).map(([img,lk])=>`<tr><td style="font-family:var(--mono);font-size:12px">${img}</td><td>${USERS.find(u=>u.username===lk.locked_by)?.displayName||lk.locked_by}</td><td style="color:var(--text3);font-family:var(--mono)">${timeAgo(lk.locked_at)}</td></tr>`).join('')||'<tr><td colspan="3" style="color:var(--text3);text-align:center;padding:18px">Aucun verrou actif</td></tr>'}</tbody></table>`;
+    `;
   }catch(e){document.getElementById('admin-body').innerHTML=`<p style="color:var(--danger);padding:20px">Erreur: ${e.message}</p>`;console.error(e);}
 }
 
@@ -978,11 +1026,139 @@ function buildFlagRows(fd,pd){
   Object.entries(fd).forEach(([img,fl])=>fl.forEach(f=>{
     const p=pd[img];
     const status=p?`<span class="flag-badge flag-labeled">✓ ${p.labeled_by} → ${p.output_json}</span>`:`<span class="flag-badge" style="background:var(--surface3);color:var(--text3)">En attente</span>`;
-    rows.push(`<tr data-img="${img}" data-type="${f.type}"><td style="font-family:var(--mono);font-size:12px">${img}</td><td>${USERS.find(u=>u.username===f.flagged_by)?.displayName||f.flagged_by}</td><td><span class="flag-badge ${f.type==='illegible'?'flag-illegible':'flag-bad'}">${f.type==='illegible'?'✋ Illisible':'📷 Mauvaise'}</span></td><td style="color:var(--text3);font-family:var(--mono);font-size:11px">${f.flagged_at.slice(0,10)}</td><td>${status}</td></tr>`);
+    const rowIdx=rows.length;
+    rows.push(`<tr data-img="${img}" data-type="${f.type}"><td style="font-family:var(--mono);font-size:12px">${img}</td><td>${USERS.find(u=>u.username===f.flagged_by)?.displayName||f.flagged_by}</td><td><span class="flag-badge ${f.type==='illegible'?'flag-illegible':'flag-bad'}">${f.type==='illegible'?'✋ Illisible':'📷 Mauvaise'}</span></td><td style="color:var(--text3);font-family:var(--mono);font-size:11px">${f.flagged_at.slice(0,10)}</td><td>${status}</td><td><button class="btn-sm" style="font-size:11px;padding:3px 9px" onclick="openFlagViewerAt('${img.replace(/'/g,"\'")}')">🔍 Voir</button></td></tr>`);
   }));
   return rows.join('')||'<tr><td colspan="5" style="color:var(--text3);text-align:center;padding:18px">Aucune image signalée</td></tr>';
 }
 function filterFlagTable(){const q=(document.getElementById('flag-search')?.value||'').toLowerCase(),t=document.getElementById('flag-filter')?.value||'';document.querySelectorAll('#flag-tbody tr').forEach(r=>{r.style.display=(!q||(r.dataset.img||'').toLowerCase().includes(q))&&(!t||r.dataset.type===t)?'':'none';});}
+
+// ═══════ ADMIN FLAGGED IMAGE VIEWER ══════════════════════
+// State
+let aivItems=[];       // [{img, flagInfo, labelInfo}] — flat list of flagged images
+let aivIdx=0;
+const AIV_CACHE={};    // { filename: b64 }
+const AIV_PREFETCH=3;  // how many ahead/behind to keep
+
+function openFlagViewer(){
+  aivOpen(window._adminFd||{}, window._adminPd||{}, window._adminImgList||[]);
+}
+function openFlagViewerAt(img){
+  aivOpen(window._adminFd||{}, window._adminPd||{}, window._adminImgList||[]).then(()=>{
+    const idx=aivItems.findIndex(x=>x.img===img);
+    if(idx>=0&&idx!==aivIdx){ aivIdx=idx; aivShow(idx); aivPrefetch(); }
+  });
+}
+
+async function aivOpen(fd, pd, imgFilesAll){
+  // Build flat item list from flags data
+  aivItems=[];
+  Object.entries(fd).forEach(([img, flist])=>{
+    const label=pd[img]||null;
+    // Find this image in images/ or processed_images/ folder list
+    const inImages=imgFilesAll.find(f=>f.name===img);
+    aivItems.push({img, flags:flist, label, fileInfo:inImages||null});
+  });
+  if(!aivItems.length){showToast('Aucune image signalée','warning');return;}
+  aivIdx=0;
+  document.getElementById('admin-img-viewer').classList.add('open');
+  await aivShow(0);
+  aivPrefetch();
+}
+
+function aivClose(){
+  document.getElementById('admin-img-viewer').classList.remove('open');
+  // Clear cache to free memory
+  Object.keys(AIV_CACHE).forEach(k=>delete AIV_CACHE[k]);
+  aivItems=[];
+}
+
+async function aivNav(dir){
+  const next=aivIdx+dir;
+  if(next<0||next>=aivItems.length)return;
+  aivIdx=next;
+  await aivShow(aivIdx);
+  aivPrefetch();
+}
+
+async function aivShow(idx){
+  const item=aivItems[idx];
+  document.getElementById('aiv-counter').textContent=`${idx+1} / ${aivItems.length}`;
+  document.getElementById('aiv-title').textContent=item.img;
+  document.getElementById('btn-aiv-prev').disabled=idx===0;
+  document.getElementById('btn-aiv-next').disabled=idx===aivItems.length-1;
+
+  // Show spinner
+  const imgEl=document.getElementById('aiv-image');
+  imgEl.style.display='none';
+  document.getElementById('aiv-spinner').style.display='block';
+
+  // Load from cache or fetch
+  let b64=AIV_CACHE[item.img];
+  if(!b64){
+    try{
+      // Try images/ first, then processed_images/
+      let fd=await GH.getFile(`${CONFIG.IMAGES_PATH}/${item.img}`);
+      if(!fd) fd=await GH.getFile(`${CONFIG.PROCESSED_PATH}/${item.img}`);
+      if(fd){ b64=fd.content.replace(/\n/g,''); AIV_CACHE[item.img]=b64; }
+    }catch(e){ console.warn('aiv fetch:',e); }
+  }
+
+  document.getElementById('aiv-spinner').style.display='none';
+  if(b64){
+    const mime=item.img.match(/\.png$/i)?'image/png':item.img.match(/\.webp$/i)?'image/webp':'image/jpeg';
+    imgEl.src=`data:${mime};base64,${b64}`;
+    imgEl.style.display='block';
+  }
+
+  // Info panel
+  const flagBadge=f=>`<span class="flag-badge ${f.type==='illegible'?'flag-illegible':'flag-bad'}">${f.type==='illegible'?'✋ Illisible':'📷 Mauvaise'}</span>`;
+  const labelerName=u=>USERS.find(x=>x.username===u)?.displayName||u;
+  let info=`<h3>Signalements</h3>`;
+  item.flags.forEach(f=>{
+    info+=`<div class="aiv-info-row">${flagBadge(f)}<div class="aiv-lbl" style="margin-top:6px">Par</div><div class="aiv-val">${labelerName(f.flagged_by)}</div><div class="aiv-lbl">Le</div><div class="aiv-val">${f.flagged_at.slice(0,10)}</div></div><hr style="border:none;border-top:1px solid var(--border);margin:10px 0">`;
+  });
+  if(item.label){
+    info+=`<h3 style="margin-top:8px">Étiquetée</h3>
+    <div class="aiv-info-row"><div class="aiv-lbl">Par</div><div class="aiv-val">${labelerName(item.label.labeled_by)}</div></div>
+    <div class="aiv-info-row"><div class="aiv-lbl">Fichier de sortie</div><div class="aiv-val" style="font-family:var(--mono);color:var(--accent)">${item.label.output_json}</div></div>
+    <div class="aiv-info-row"><div class="aiv-lbl">Date</div><div class="aiv-val">${item.label.labeled_at.slice(0,10)}</div></div>`;
+  } else {
+    info+=`<div class="aiv-info-row"><span class="flag-badge" style="background:var(--surface3);color:var(--text3)">Non encore étiquetée</span></div>`;
+  }
+  document.getElementById('aiv-info').innerHTML=info;
+}
+
+async function aivPrefetch(){
+  // Prefetch AIV_PREFETCH images ahead and keep AIV_PREFETCH behind
+  const keepStart=Math.max(0,aivIdx-AIV_PREFETCH);
+  const keepEnd=Math.min(aivItems.length-1,aivIdx+AIV_PREFETCH);
+
+  // Evict images outside the keep window
+  Object.keys(AIV_CACHE).forEach(k=>{
+    const idx=aivItems.findIndex(x=>x.img===k);
+    if(idx<keepStart||idx>keepEnd) delete AIV_CACHE[k];
+  });
+
+  // Prefetch ahead
+  let loaded=0;
+  for(let i=aivIdx+1;i<=keepEnd;i++){
+    const item=aivItems[i];
+    if(!AIV_CACHE[item.img]){
+      try{
+        let fd=await GH.getFile(`${CONFIG.IMAGES_PATH}/${item.img}`);
+        if(!fd) fd=await GH.getFile(`${CONFIG.PROCESSED_PATH}/${item.img}`);
+        if(fd) AIV_CACHE[item.img]=fd.content.replace(/\n/g,'');
+      }catch(e){}
+    }
+    loaded++;
+    const pct=Math.round(loaded/(keepEnd-aivIdx)*100);
+    const fill=document.getElementById('aiv-prefetch-fill');
+    if(fill) fill.style.width=pct+'%';
+  }
+  const fill=document.getElementById('aiv-prefetch-fill');
+  if(fill) setTimeout(()=>fill.style.width='0%',600);
+}
 
 // ═══════ HELPERS ══════════════════════════════════════════
 function splitVal(s){if(!s)return['',''];const p=s.trim().split(' ');return p.length>=2?[p[0],p.slice(1).join(' ')]:[s,''];}
@@ -994,5 +1170,29 @@ function selectOpts(opts,sel){return opts.map(o=>`<option value="${esc(o)}"${o==
 function setStatus(msg){const el=document.getElementById('status-msg');if(el)el.textContent=msg;}
 function showToast(msg,type='success'){const t=document.createElement('div');t.className=`toast ${type}`;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3500);}
 </script>
+
+<!-- ADMIN FLAGGED IMAGE VIEWER -->
+<div id="admin-img-viewer">
+  <div class="aiv-header">
+    <div class="aiv-title" id="aiv-title">—</div>
+    <div class="aiv-prefetch-bar" style="width:120px;border-radius:4px;overflow:hidden">
+      <div class="aiv-prefetch-fill" id="aiv-prefetch-fill"></div>
+    </div>
+    <div class="aiv-nav">
+      <div class="aiv-counter" id="aiv-counter">— / —</div>
+      <button class="btn-aiv" id="btn-aiv-prev" onclick="aivNav(-1)">← Préc.</button>
+      <button class="btn-aiv" id="btn-aiv-next" onclick="aivNav(1)">Suiv. →</button>
+    </div>
+    <button class="btn-aiv btn-aiv-close" onclick="aivClose()">✕ Fermer</button>
+  </div>
+  <div class="aiv-body">
+    <div class="aiv-img-pane">
+      <div class="spinner" id="aiv-spinner"></div>
+      <img id="aiv-image" src="" alt="" style="display:none">
+    </div>
+    <div class="aiv-info-pane" id="aiv-info"></div>
+  </div>
+</div>
+
 </body>
 </html>
